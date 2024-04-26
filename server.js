@@ -25,7 +25,7 @@ const upload = multer({
 
 require('dotenv').config();
 
-const REGISTERED_API_KEYS = process.env.REGISTERED_API_KEY.split(',');
+const REGISTERED_API_KEYS = process.env.REGISTERED_API_KEYS.split(',');
 
 // Middleware for checking the API key
 function checkApiKey(req, res, next) {
@@ -56,4 +56,4 @@ app.post('/upload', checkApiKey, (req, res, next) => {
 
 app.use('/uploads', express.static('uploads'));
 
-app.listen(3000, () => console.log('Server started on port 3000'));
+app.listen(process.env.APP_PORT, () => console.log('Server started on port 3000'));
