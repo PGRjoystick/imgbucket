@@ -49,11 +49,11 @@ app.post('/upload', checkApiKey, (req, res, next) => {
     // Everything went fine.
     return res.status(201).json({
       message: 'File uploaded successfully',
-      fileUrl: `http://localhost:3000/uploads/${req.file.filename}`
+      fileUrl: `https://${process.env.APP_URL}/uploads/${req.file.filename}`
     });
   });
 });
 
 app.use('/uploads', express.static('uploads'));
 
-app.listen(process.env.APP_PORT, () => console.log('Server started on port 3000'));
+app.listen(process.env.APP_PORT, () => console.log(`Server is running on port ${process.env.APP_PORT}`));
