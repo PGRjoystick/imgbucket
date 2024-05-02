@@ -1,7 +1,16 @@
 {
-  "dependencies": {
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "multer": "^1.4.5-lts.1"
-  }
+    "name": "imgbucket",
+    "version": "1.0.0",
+    "description": "A simple image and file bucket to use with other tools over the API",
+    "author": "PGRjoystick",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js",
+        "calculate": "node calculateChecksum.js"
+    },
+    "dependencies": {
+        "dotenv": "^16.4.5",
+        "express": "^4.19.2",
+        "multer": "^1.4.5-lts.1"
+    }
 }

@@ -1,18 +1,25 @@
 const express = require('express');
 const multer = require('multer');
-
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const app = express();
 
 // Serve static files from the 'public' directory
 app.use(express.static('public'));
 
-// Set up Multer storage
+// Load checksums
+let checksums = {};
+if (fs.existsSync('checksums.json')) {
+  checksums = JSON.parse(fs.readFileSync('checksums.json'));
+}
+
 const storage = multer.diskStorage({
   destination: function(req, file, cb) {
     cb(null, 'uploads/');
   },
   filename: function(req, file, cb) {
-    cb(null, file.originalname);
+    cb(null, path.basename(file.originalname));
   }
 });
 
@@ -45,6 +52,24 @@ app.post('/upload', checkApiKey, (req, res, next) => {
       // An unknown error occurred when uploading.
       return res.status(500).json({ message: err.message });
     }
+
+    // Calculate SHA256 checksum
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const hashSum = crypto.createHash('sha256');
+    hashSum.update(fileBuffer);
+    const hex = hashSum.digest('hex');
+
+    // Check if file with same checksum exists
+    if (checksums[hex]) {
+      return res.status(200).json({
+        message: 'File already exists',
+        fileUrl: `https://${process.env.APP_URL}/uploads/${checksums[hex]}`
+      });
+    }
+
+    // Save checksum and filename
+    checksums[hex] = req.file.filename;
+    fs.writeFileSync('checksums.json', JSON.stringify(checksums));
 
     // Everything went fine.
     return res.status(201).json({
