@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 uploads/
+tempuploads/
 public/
 .env
 checksums.json
