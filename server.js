@@ -60,7 +60,7 @@ const upload = multer({
 
 require('dotenv').config();
 
-const REGISTERED_API_KEYS = process.env.REGISTERED_API_KEYS.split(',');
+const REGISTERED_API_KEYS = (process.env.REGISTERED_API_KEYS || '').split(',');
 
 // Middleware for checking the API key
 function checkApiKey(req, res, next) {
@@ -109,6 +109,7 @@ app.post('/upload', checkApiKey, (req, res, next) => {
 app.post('/upload-temp', checkApiKey, (req, res, next) => {
   tempUpload(req, res, function(err) {
     if (err) {
+      console.error(err);
       return res.status(500).json({ message: err.message });
     }
 
