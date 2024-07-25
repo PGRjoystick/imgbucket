@@ -4,9 +4,22 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const app = express();
+const https = require('https');
 
 // Serve static files from the 'public' directory
 app.use(express.static('public'));
+
+// SSL certificate paths
+const privateKeyPath = process.env.CERT_KEY_PATH;
+const certificatePath = process.env.CERT_PATH;
+
+const privateKey = fs.readFileSync(privateKeyPath, 'utf8');
+const certificate = fs.readFileSync(certificatePath, 'utf8');
+
+const credentials = { key: privateKey, cert: certificate };
+
+// Creating HTTPS server
+const httpsServer = https.createServer(credentials, app);
 
 // Load checksums
 let checksums = {};
@@ -144,4 +157,9 @@ app.post('/upload-temp', checkApiKey, (req, res, next) => {
 app.use('/uploads', express.static('uploads'));
 app.use('/tempuploads', express.static('tempuploads'));
 
-app.listen(process.env.APP_PORT, () => console.log(`Server is running on port ${process.env.APP_PORT}`));
+// app.listen(process.env.APP_PORT, () => console.log(`Server is running on port ${process.env.APP_PORT}`));
+
+// Listen on HTTPS port
+httpsServer.listen(process.env.APP_PORT, () => {
+  console.log(`HTTPS Server is running on port ${process.env.APP_PORT}`);
+});
