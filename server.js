@@ -5,6 +5,31 @@ const fs = require('fs');
 const path = require('path');
 const app = express();
 const https = require('https');
+require('dotenv').config();
+
+// Logging middleware
+function logRequests(req, res, next) {
+  const now = new Date();
+  // Format the date and time to be more readable
+  const readableDate = now.toLocaleString(); // Adjust this according to your locale and preferences
+
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const ip = req.headers['x-real-ip'] || (forwardedFor ? forwardedFor.split(',')[0] : '') || req.socket.remoteAddress;
+  const userAgent = req.headers['user-agent'];
+
+  const logMessage = `${readableDate} - ${req.method} ${req.url} - IP: ${ip} - User-Agent: ${userAgent}\n`;
+
+  // Append log message to server.log
+  fs.appendFile(path.join(__dirname, 'server.log'), logMessage, (err) => {
+    if (err) {
+      console.error('Error writing to log file:', err);
+    }
+  });
+
+  next();
+}
+
+app.use(logRequests);
 
 // Serve static files from the 'public' directory
 app.use(express.static('public'));
@@ -157,7 +182,8 @@ app.post('/upload-temp', checkApiKey, (req, res, next) => {
 app.use('/uploads', express.static('uploads'));
 app.use('/tempuploads', express.static('tempuploads'));
 
-// app.listen(process.env.APP_PORT, () => console.log(`Server is running on port ${process.env.APP_PORT}`));
+
+app.listen(process.env.INSECURE_APP_PORT, () => console.log(`Server is running on port ${process.env.INSECURE_APP_PORT}`));
 
 // Listen on HTTPS port
 httpsServer.listen(process.env.APP_PORT, () => {
