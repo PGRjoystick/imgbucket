@@ -11,10 +11,13 @@ require('dotenv').config();
 function logRequests(req, res, next) {
   const now = new Date();
   // Format the date and time to be more readable
-  const readableDate = now.toLocaleString(); // Adjust this according to your locale and preferences
+  const readableDate = now.toLocaleString();
 
+  // Check for the Cloudflare header 'CF-Connecting-IP'
+  const cfConnectingIp = req.headers['cf-connecting-ip'];
   const forwardedFor = req.headers['x-forwarded-for'];
-  const ip = req.headers['x-real-ip'] || (forwardedFor ? forwardedFor.split(',')[0] : '') || req.socket.remoteAddress;
+  const ip = cfConnectingIp || req.headers['x-real-ip'] || (forwardedFor ? forwardedFor.split(',')[0] : '') || req.socket.remoteAddress;
+
   const userAgent = req.headers['user-agent'];
 
   const logMessage = `${readableDate} - ${req.method} ${req.url} - IP: ${ip} - User-Agent: ${userAgent}\n`;
@@ -84,7 +87,7 @@ const storage = multer.diskStorage({
 const tempUpload = multer({ 
   storage: tempStorage,
   limits: {
-    fileSize: 1000 * 1024 * 1024 // Same file size limit as before
+    fileSize: 2000 * 1024 * 1024 // Same file size limit as before
   }
 }).single('file');
 
@@ -95,8 +98,6 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024
   }
 }).single('file');
-
-require('dotenv').config();
 
 const REGISTERED_API_KEYS = (process.env.REGISTERED_API_KEYS || '').split(',');
 
@@ -182,8 +183,8 @@ app.post('/upload-temp', checkApiKey, (req, res, next) => {
 app.use('/uploads', express.static('uploads'));
 app.use('/tempuploads', express.static('tempuploads'));
 
-
-app.listen(process.env.INSECURE_APP_PORT, () => console.log(`Server is running on port ${process.env.INSECURE_APP_PORT}`));
+// Listen on HTTP port
+app.listen(process.env.INSECURE_APP_PORT, () => console.log(`HTTP Server is running on port ${process.env.INSECURE_APP_PORT}`));
 
 // Listen on HTTPS port
 httpsServer.listen(process.env.APP_PORT, () => {
