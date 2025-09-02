@@ -16,6 +16,7 @@ tempuploads/
 public/
 .env
 checksums.json
+temp-checksums.json
 
 # Editor directories and files
 .vscode/*

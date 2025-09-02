@@ -49,10 +49,16 @@ const credentials = { key: privateKey, cert: certificate };
 // Creating HTTPS server
 const httpsServer = https.createServer(credentials, app);
 
-// Load checksums
+// Load checksums for permanent uploads
 let checksums = {};
 if (fs.existsSync('checksums.json')) {
   checksums = JSON.parse(fs.readFileSync('checksums.json'));
+}
+
+// Load checksums for temporary uploads
+let tempChecksums = {};
+if (fs.existsSync('temp-checksums.json')) {
+  tempChecksums = JSON.parse(fs.readFileSync('temp-checksums.json'));
 }
 
 // Define storage for temporary uploads with improved path injection protection
@@ -95,11 +101,55 @@ const tempUpload = multer({
 const upload = multer({ 
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024
+    fileSize: 200 * 1024 * 1024
   }
 }).single('file');
 
 const REGISTERED_API_KEYS = (process.env.REGISTERED_API_KEYS || '').split(',');
+
+// Function to clean up expired temporary files and their checksum entries
+function cleanupExpiredTempFiles() {
+  const currentTime = Date.now();
+  let cleanedFiles = 0;
+  let cleanedEntries = 0;
+
+  Object.keys(tempChecksums).forEach(hash => {
+    const entry = tempChecksums[hash];
+    if (typeof entry === 'object' && entry.expires) {
+      const filePath = path.join('tempuploads', entry.filename);
+      const isExpired = entry.expires < currentTime;
+      const fileExists = fs.existsSync(filePath);
+
+      if (isExpired || !fileExists) {
+        // Delete the file if it exists but is expired
+        if (fileExists && isExpired) {
+          try {
+            fs.unlinkSync(filePath);
+            console.log(`[Cleanup] Deleted expired file: ${entry.filename}`);
+            cleanedFiles++;
+          } catch (error) {
+            console.error(`[Cleanup] Error deleting expired file: ${entry.filename}`, error);
+          }
+        }
+
+        // Remove the checksum entry
+        delete tempChecksums[hash];
+        cleanedEntries++;
+      }
+    }
+  });
+
+  if (cleanedEntries > 0) {
+    fs.writeFileSync('temp-checksums.json', JSON.stringify(tempChecksums));
+    console.log(`[Cleanup] Removed ${cleanedEntries} expired/invalid checksum entries and ${cleanedFiles} files`);
+  }
+}
+
+// Run cleanup every 30 minutes
+setInterval(cleanupExpiredTempFiles, 30 * 60 * 1000);
+
+// Run initial cleanup on server start
+setTimeout(cleanupExpiredTempFiles, 5000); // 5 seconds after startup
 
 // Middleware for checking the API key
 function checkApiKey(req, res, next) {
@@ -113,10 +163,8 @@ function checkApiKey(req, res, next) {
 app.post('/upload', checkApiKey, (req, res, next) => {
   upload(req, res, function(err) {
     if (err instanceof multer.MulterError) {
-      // A Multer error occurred when uploading.
       return res.status(500).json({ message: err.message });
     } else if (err) {
-      // An unknown error occurred when uploading.
       return res.status(500).json({ message: err.message });
     }
 
@@ -126,15 +174,30 @@ app.post('/upload', checkApiKey, (req, res, next) => {
     hashSum.update(fileBuffer);
     const hex = hashSum.digest('hex');
 
-    // Check if file with same checksum exists
+    // Check if file with same checksum exists in PERMANENT storage only
     if (checksums[hex]) {
-      return res.status(200).json({
-        message: 'File already exists',
-        fileUrl: `https://${process.env.APP_URL}/uploads/${checksums[hex]}`
-      });
+      const existingFilePath = path.join('uploads', checksums[hex]);
+      
+      // Verify the file actually exists
+      if (fs.existsSync(existingFilePath)) {
+        // File exists - return the existing file
+        fs.unlinkSync(req.file.path);
+        
+        return res.status(200).json({
+          message: 'File already exists',
+          fileUrl: `https://${process.env.APP_URL}/uploads/${checksums[hex]}`
+        });
+      } else {
+        // File doesn't exist - clean up the checksum entry
+        console.log(`[Cleanup] Removing stale checksum entry for missing file: ${checksums[hex]}`);
+        delete checksums[hex];
+        fs.writeFileSync('checksums.json', JSON.stringify(checksums));
+        
+        // Continue with normal upload process since the old entry is now cleaned up
+      }
     }
 
-    // Save checksum and filename
+    // Save checksum and filename for permanent uploads
     checksums[hex] = req.file.filename;
     fs.writeFileSync('checksums.json', JSON.stringify(checksums));
 
@@ -158,16 +221,60 @@ app.post('/upload-temp', checkApiKey, (req, res, next) => {
     hashSum.update(fileBuffer);
     const hex = hashSum.digest('hex');
 
-    // Save checksum and filename with expiration time
+    // Check if file already exists in temporary storage
+    if (tempChecksums[hex]) {
+      const existingEntry = tempChecksums[hex];
+      const existingFilePath = path.join('tempuploads', existingEntry.filename);
+      
+      // Check if the existing file actually exists and hasn't expired
+      const currentTime = Date.now();
+      const isExpired = existingEntry.expires && existingEntry.expires < currentTime;
+      const fileExists = fs.existsSync(existingFilePath);
+      
+      if (fileExists && !isExpired) {
+        // File exists and is not expired - return the existing file
+        fs.unlinkSync(req.file.path);
+        
+        return res.status(200).json({
+          message: 'File already exists in temporary storage',
+          fileUrl: `https://${process.env.APP_URL}/tempuploads/${existingEntry.filename}`,
+          expiry: 'This link will expire in 2 hours'
+        });
+      } else {
+        // File is expired or doesn't exist - clean up the checksum entry
+        console.log(`[Cleanup] Removing stale checksum entry for ${existingEntry.filename} (expired: ${isExpired}, exists: ${fileExists})`);
+        delete tempChecksums[hex];
+        fs.writeFileSync('temp-checksums.json', JSON.stringify(tempChecksums));
+        
+        // If the file still exists but is expired, delete it
+        if (fileExists && isExpired) {
+          try {
+            fs.unlinkSync(existingFilePath);
+            console.log(`[Cleanup] Deleted expired file: ${existingEntry.filename}`);
+          } catch (error) {
+            console.error(`[Cleanup] Error deleting expired file: ${existingEntry.filename}`, error);
+          }
+        }
+        
+        // Continue with normal upload process since the old entry is now cleaned up
+      }
+    }
+
+    // Save checksum and filename with expiration time in temp checksums
     const expirationTime = Date.now() + (2 * 60 * 60 * 1000); // 2 hours in milliseconds
-    checksums[hex] = { filename: req.file.filename, expires: expirationTime, path: 'tempuploads/' };
-    fs.writeFileSync('checksums.json', JSON.stringify(checksums));
+    tempChecksums[hex] = { filename: req.file.filename, expires: expirationTime, path: 'tempuploads/' };
+    fs.writeFileSync('temp-checksums.json', JSON.stringify(tempChecksums));
 
     // Schedule file deletion
     setTimeout(() => {
-      fs.unlinkSync(req.file.path);
-      delete checksums[hex];
-      fs.writeFileSync('checksums.json', JSON.stringify(checksums));
+      try {
+        fs.unlinkSync(req.file.path);
+        delete tempChecksums[hex];
+        fs.writeFileSync('temp-checksums.json', JSON.stringify(tempChecksums));
+        console.log(`[Cleanup] Deleted temporary file: ${req.file.filename}`);
+      } catch (error) {
+        console.error(`[Cleanup] Error deleting temporary file: ${req.file.filename}`, error);
+      }
     }, 2 * 60 * 60 * 1000); // 2 hours
 
     // Return response
